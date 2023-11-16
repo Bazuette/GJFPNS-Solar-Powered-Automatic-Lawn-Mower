@@ -1,3 +1,5 @@
+#include <BTS7960.h>
+
 
 // Load Wi-Fi library
 #include <WiFi.h>
@@ -23,18 +25,15 @@ String cutterState = "off";
 bool automatic = false;
 
 //motor instances
-L298N m1(14, 27);
-L298N m2(26, 25);
-L298N m3(33, 32);
-L298N m4(13, 12);
+BTS7960 motor1(23, 22, 21, 19);
+BTS7960 cutter(26, 33, 25, 32);
+
+BTS7960 motor2(12, 13, 5, 18);
+
 
 void setup() {
-  stopDCMotors();
-  m1.setSpeed(255);
-  m2.setSpeed(255);
-  m3.setSpeed(255);
-  m4.setSpeed(255);
-  Serial.begin(115200);
+
+  Serial.begin(9600);
 
   // Connect to Wi-Fi network with SSID and password
   Serial.print("Setting AP (Access Point)…");
@@ -46,9 +45,13 @@ void setup() {
   Serial.println(IP);
   
   server.begin();
+  
 }
 
 void loop(){
+  motor1.Enable();
+  motor2.Enable();
+  cutter.Enable();
   WiFiClient client = server.available();   // Listen for incoming clients
 
   if (client) {                             // If a new client connects,
@@ -106,27 +109,13 @@ void loop(){
             } else if (header.indexOf("GET /cutterState/off") >= 0) {
               Serial.println("cutter OFF");
               cutterState = "off";
+              cutter.TurnLeft(125);
             } else if (header.indexOf("GET /cutterState/on") >= 0) {
               Serial.println("cutter on");
               cutterState = "on";
+              cutter.TurnLeft(0);
             }
-            if (leftState == "off" && rightState == "off" && forwardState == "off" && backwardState == "off"){
-            stopDCMotors();
-            }
-            if (!automatic){
-              if (leftState == "on") {
-                turnLeft();
-              }
-              if (rightState == "on") {
-                turnRight();
-              }
-              if (forwardState == "on"){
-                forward();
-              }
-              if (backwardState == "on"){
-                backward();
-              }
-            }
+          
             
             // Display the HTML web page
             client.println("<!DOCTYPE html><html>");
@@ -195,19 +184,27 @@ void loop(){
     header = "";
     // Close the connection
     client.stop();
-    Serial.println("Client disconnected.");
-    Serial.println("");
   }
-  
+  if(leftState == "off" && rightState == "off" && forwardState == "off" && backwardState == "off") {
+  stopDCMotors();
+  } else if (!automatic) {
+    if (leftState == "on") {
+      turnLeft();
+    }
+    if (rightState == "on") {
+      turnRight();
+    }
+    if (forwardState == "on") {
+      forward();
+    }
+    if (backwardState == "on") {
+      backward();
+    }
+  }
+  Serial.println("");
 }
   void resetMovement(String state) {
-  if (state == ""){
-    backwardState = "off";
-    forwardState = "off";
-    leftState = "off";
-    rightState = "off";
-    stopDCMotors();
-  } else if (state == "leftState"){
+  if (state == "leftState"){
       rightState = "off";
       forwardState = "off";
       backwardState = "off";
@@ -224,38 +221,30 @@ void loop(){
       leftState = "off";
       rightState = "off";
     }
-  }
+
+  
+}
   void turnLeft(){
+    motor1.TurnLeft(150);
+    motor2.TurnRight(150);
     Serial.print("VROOM LEFT");
-    m1.forward();
-    m2.forward();
-    m3.backward();
-    m4.backward();
   }
   void turnRight(){
+    motor2.TurnLeft(150);
+    motor1.TurnRight(150);
     Serial.print("VROOM RIGHT");
-    m3.forward();
-    m4.forward();
-    m1.backward();
-    m2.backward();
   }
   void backward(){
-    m1.backward();
-    m2.backward();
-    m3.backward();
-    m4.backward();
+    motor1.TurnLeft(150);
+    motor2.TurnLeft(150);
     Serial.print("VROOM BACKWARD");
   }
   void forward(){
-    m4.forward();
-    m3.forward();
-    m2.forward();
-    m1.forward();
+    motor2.TurnRight(150);
+    motor2.TurnRight(150);
     Serial.print("VROOM FORWARD");
   }
   void stopDCMotors(){
-    m1.stop();
-    m2.stop();
-    m3.stop();
-    m4.stop();
+    motor1.Stop();
+    motor2.Stop();
   }
