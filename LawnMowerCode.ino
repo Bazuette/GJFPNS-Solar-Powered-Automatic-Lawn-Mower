@@ -1,4 +1,5 @@
 #include <BTS7960.h>
+#include <NewPing.h>
 
 
 // Load Wi-Fi library
@@ -12,7 +13,9 @@ const char* password = "GJFPNS123";
 
 // Set web server port number to 80
 WiFiServer server(80);
-
+NewPing frontSensor(4, 4, 500);
+NewPing rightSensor(2,2,500);
+NewPing leftSensor(15,15,500);
 // Variable to store the HTTP request
 String header;
 
@@ -22,6 +25,7 @@ String rightState = "off";
 String forwardState = "off";
 String backwardState = "off";
 String cutterState = "off";
+String autoState = "off";
 bool automatic = false;
 
 //motor instances
@@ -29,10 +33,23 @@ BTS7960 motor1(23, 22, 21, 19);
 BTS7960 cutter(26, 33, 25, 32);
 
 BTS7960 motor2(12, 13, 5, 18);
-
+//Task
+TaskHandle_t autoTask;
+// Parameters
+int turnSpeed = 255;
+int robotSpeed = 255;
+int obstacleDistance = 20;
 
 void setup() {
-
+  xTaskCreatePinnedToCore(
+      autoTaskCode, /* Function to implement the task */
+      "autoTask", /* Name of the task */
+      10000,  /* Stack size in words */
+      NULL,  /* Task input parameter */
+      0,  /* Priority of the task */
+      &autoTask,  /* Task handle. */
+      0); /* Core where the task should run */
+  delay(500);
   Serial.begin(9600);
 
   // Connect to Wi-Fi network with SSID and password
@@ -109,11 +126,22 @@ void loop(){
             } else if (header.indexOf("GET /cutterState/off") >= 0) {
               Serial.println("cutter OFF");
               cutterState = "off";
-              cutter.TurnLeft(125);
+              cutter.TurnRight(0);
             } else if (header.indexOf("GET /cutterState/on") >= 0) {
               Serial.println("cutter on");
               cutterState = "on";
-              cutter.TurnLeft(0);
+              cutter.TurnRight(100);
+            } else if (header.indexOf("GET /automatic/off") >= 0){
+              automatic = false;
+              stopDCMotors();
+            } else if (header.indexOf("GET /automatic/on") >= 0){
+              automatic = true;
+              stopDCMotors();
+            } else if (header.indexOf("GET /automatic/autostate/on") >= 0 ){
+              autoState = "on";
+            } else if (header.indexOf("GET /automatic/autostate/off") >= 0 ){
+              autoState = "off";
+              stopDCMotors();
             }
           
             
@@ -131,35 +159,44 @@ void loop(){
             // Web Page Heading
             client.println("<body><h1>Lawn Mower Controls</h1>");
             
-            // Display current state, and ON/OFF buttons for GPIO 26  
-            client.println("<p>Turn Left </p>");
-            // If the output26State is off, it displays the ON button       
-            if (leftState=="on") {
-              client.println("<p><a href=\"/leftState/off\"><button class=\"button\">ON</button></a></p>");
-            } else {
-              client.println("<p><a href=\"/leftState/on\"><button class=\"button button2\">OFF</button></a></p>");
-            } 
+            if (!automatic){
+              // Display current state, and ON/OFF buttons for GPIO 26  
+              client.println("<p>Turn Left </p>");
+              // If the output26State is off, it displays the ON button       
+              if (leftState=="on") {
+                client.println("<p><a href=\"/leftState/off\"><button class=\"button\">ON</button></a></p>");
+              } else {
+                client.println("<p><a href=\"/leftState/on\"><button class=\"button button2\">OFF</button></a></p>");
+              } 
 
-            client.println("<p>Turn Right </p>");
-            // If the output26State is off, it displays the ON button       
-            if (rightState=="on") {
-              client.println("<p><a href=\"/rightState/off\"><button class=\"button\">ON</button></a></p>");
-            } else {
-              client.println("<p><a href=\"/rightState/on\"><button class=\"button button2\">OFF</button></a></p>");
-            } 
+              client.println("<p>Turn Right </p>");
+              // If the output26State is off, it displays the ON button       
+              if (rightState=="on") {
+                client.println("<p><a href=\"/rightState/off\"><button class=\"button\">ON</button></a></p>");
+              } else {
+                client.println("<p><a href=\"/rightState/on\"><button class=\"button button2\">OFF</button></a></p>");
+              } 
 
-            client.println("<p>Go Forward </p>");
-            if (forwardState=="on") {
-              client.println("<p><a href=\"/forwardState/off\"><button class=\"button\">ON</button></a></p>");
+              client.println("<p>Go Forward </p>");
+              if (forwardState=="on") {
+                client.println("<p><a href=\"/forwardState/off\"><button class=\"button\">ON</button></a></p>");
+              } else {
+                client.println("<p><a href=\"/forwardState/on\"><button class=\"button button2\">OFF</button></a></p>");
+              } 
+              client.println("<p>Go Backward </p>");
+              if (backwardState=="on") {
+                client.println("<p><a href=\"/backwardState/off\"><button class=\"button\">ON</button></a></p>");
+              } else {
+                client.println("<p><a href=\"/backwardState/on\"><button class=\"button button2\">OFF</button></a></p>");
+              } 
             } else {
-              client.println("<p><a href=\"/forwardState/on\"><button class=\"button button2\">OFF</button></a></p>");
-            } 
-            client.println("<p>Go Backward </p>");
-            if (backwardState=="on") {
-              client.println("<p><a href=\"/backwardState/off\"><button class=\"button\">ON</button></a></p>");
-            } else {
-              client.println("<p><a href=\"/backwardState/on\"><button class=\"button button2\">OFF</button></a></p>");
-            } 
+              client.println("<p>Auto Status</p>");
+              if (autoState=="on") {
+                client.println("<p><a href=\"/automatic/autostate/off\"><button class=\"button\">ON</button></a></p>");
+              } else {
+                client.println("<p><a href=\"/automatic/autostate/on\"><button class=\"button button2\">OFF</button></a></p>");
+              } 
+            }
             client.println("<p>Cutter </p>");
             if (cutterState=="on") {
               client.println("<p><a href=\"/cutterState/off\"><button class=\"button\">ON</button></a></p>");
@@ -183,25 +220,10 @@ void loop(){
     // Clear the header variable
     header = "";
     // Close the connection
-    client.stop();
+
   }
-  if(leftState == "off" && rightState == "off" && forwardState == "off" && backwardState == "off") {
-  stopDCMotors();
-  } else if (!automatic) {
-    if (leftState == "on") {
-      turnLeft();
-    }
-    if (rightState == "on") {
-      turnRight();
-    }
-    if (forwardState == "on") {
-      forward();
-    }
-    if (backwardState == "on") {
-      backward();
-    }
-  }
-  Serial.println("");
+  
+  
 }
   void resetMovement(String state) {
   if (state == "leftState"){
@@ -224,27 +246,101 @@ void loop(){
 
   
 }
-  void turnLeft(){
-    motor1.TurnLeft(150);
-    motor2.TurnRight(150);
-    Serial.print("VROOM LEFT");
-  }
   void turnRight(){
-    motor2.TurnLeft(150);
-    motor1.TurnRight(150);
+    motor1.TurnLeft(turnSpeed);
+    motor2.TurnRight(turnSpeed);
     Serial.print("VROOM RIGHT");
   }
+  void turnLeft(){
+    motor2.TurnLeft(turnSpeed);
+    motor1.TurnRight(turnSpeed);
+    Serial.print("VROOM LEFT");
+  }
   void backward(){
-    motor1.TurnLeft(150);
-    motor2.TurnLeft(150);
+    motor1.TurnLeft(robotSpeed);
+    motor2.TurnLeft(robotSpeed);
     Serial.print("VROOM BACKWARD");
   }
   void forward(){
-    motor2.TurnRight(150);
-    motor2.TurnRight(150);
+    motor1.TurnRight(robotSpeed);
+    motor2.TurnRight(robotSpeed);
     Serial.print("VROOM FORWARD");
   }
   void stopDCMotors(){
     motor1.Stop();
     motor2.Stop();
+  }
+  void autoTaskCode( void * parameter) {
+    for(;;) {
+      if (!automatic) {
+        if(leftState == "off" && rightState == "off" && forwardState == "off" && backwardState == "off") {
+        stopDCMotors();
+        } 
+          if (leftState == "on") {
+            turnLeft();
+          }
+          if (rightState == "on") {
+            turnRight();
+          }
+          if (forwardState == "on") {
+            forward();
+          }
+          if (backwardState == "on") {
+            backward();
+          }
+      } else if (automatic && (autoState == "on")){
+        delay(50);
+        Serial.println(frontSensor.ping_cm());
+        Serial.println(leftSensor.ping_cm());
+        Serial.println(rightSensor.ping_cm());
+          if (frontSensor.ping_cm() > obstacleDistance){
+            if (rightSensor.ping_cm() > obstacleDistance){
+                if (leftSensor.ping_cm() > obstacleDistance){
+                  forward();
+                } else {
+                  Serial.println("Left Sensor Obstacle");
+                  stopDCMotors();
+                  delay(400);
+                  backward();
+                  delay(700);
+                  stopDCMotors();
+                  delay(200);
+                  turnRight();
+                  delay(400);
+                  stopDCMotors();
+                  delay(300);
+                }
+            } else {
+              Serial.println("Right Sensor Obstacle");
+              stopDCMotors();
+              delay(400);
+              backward();
+              delay(700);
+              stopDCMotors();
+              delay(200);
+              turnLeft();
+              delay(400);
+              stopDCMotors();
+              delay(300);
+            }
+          } else {
+            Serial.println("Front Sensor Obstacle");
+            stopDCMotors();
+            delay(400);
+            backward();
+            delay(700);
+            stopDCMotors();
+            delay(200);
+            turnRight();
+            delay(4000);
+            stopDCMotors();
+            delay(300);
+          }
+        
+        
+        }
+        if (automatic && (autoState == "off")){
+          stopDCMotors();
+        }
+    }
   }
